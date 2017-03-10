@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 from BaseHTTPServer import BaseHTTPRequestHandler
 from StringIO import StringIO
-from util import CLRF, STATUS_MESSAGE, SERVER_STR
+from util import CLRF, STATUS_MESSAGE, SERVER_STR, MIMES
+from util import dir_exist, file_exist, can_read
 from response import err_page
 from header_handler import *
+from server import CONFIG
 import time
 
 header_handler = {
@@ -36,17 +38,10 @@ def handle_request(request):
     for key in result.headers.keys():
         request.headers[key] = result.headers[key]
 
-    for key in request.headers.keys():
-        print 'key:%s value:%s' % (key, request.headers[key])
+    print request.http_message
 
-    # only support GET now.
-    if not valid_method(request.method) or request.method != 'GET':
-        request.response_message = build_err_response(request, 405)
-
-
-def handle_response(request):
-    if request.response_done:
-        pass
+    handle_request_line(request)
+    handle_headers(request)
 
 
 def valid_method(method):
@@ -57,7 +52,7 @@ def valid_method(method):
 
 
 def build_err_response(request, status):
-    # HTTP/1.1 404 Not Found\r\n
+    # e.g. HTTP/1.1 404 Not Found\r\n
     response_line = '%s %s%s' % (request.version, STATUS_MESSAGE[status], CLRF)
 
     headers = ''
@@ -68,14 +63,79 @@ def build_err_response(request, status):
     headers += 'Content-Length: %d%s%s' % (len(content), CLRF, CLRF)
 
     response = response_line + headers + content
-    # response build done
-    request.response_done = True
     return response
 
 
+def build_response(request):
+    response_line = ''
+    response_header = ''
+    response_body = ''
+    if request.status == 200:
+        with open(request.file_path, 'r') as f:
+            response_body = f.read()
+            request.file_len = len(f.read())
+
+        response_line = '%s %s%s' % (request.version.upper(), STATUS_MESSAGE[request.status], CLRF)
+        if request.keep_alive:
+            response_header += 'Connection: keep-alive%s' % CLRF
+        else:
+            response_header += 'Connection: close%s' % CLRF
+        response_line += 'Content-Type: %s%s' % (STATUS_MESSAGE[request.status], CLRF)
+        response_line += 'Content-Length: %d%s' % (request.file_len, CLRF)
+        response_line += 'Date: %s%s' % (time.strftime('%a, %d %b %Y %H:%M:%S GMT', time.localtime()), CLRF)
+        response_line += 'Last-Modified: %s%s%s' % (time.strftime('%a, %d %b %Y %H:%M:%S GMT',
+                                                                  modified_time(request.file_path)), CLRF, CLRF)
+    return response_line + response_header + response_body
+
+
+def handle_request_line(request):
+    # only support GET now
+    if not valid_method(request.method) or request.method != 'GET':
+        request.status = 405
+
+    handle_uri(request)
+
+    if request.version == 'http/1.1':
+        request.keep_alive = True
+    elif request.version == 'http/1.0':
+        request.keep_alive = False
+    else:
+        request.status = 505
+        request.err = True
+
+
 def handle_uri(request):
-    print request.path
+    if request.path.find('?'):
+        request.path = request.path[:request.path.find('?')]
+
+    abs_path = '{0}/{1}'.format(CONFIG['root'], request.path)
+    # dir
+    if dir_exist(abs_path):
+        if not can_read(abs_path):
+            request.status = 403
+            request.err = True
+        else:
+            request.file_path = '{0}/{1}'.format(abs_path, CONFIG['index'])
+            request.mime = MIMES['html']
+    # regular file
+    elif file_exist(abs_path):
+        if not can_read(abs_path):
+            request.status = 403
+            request.err = True
+        else:
+            request.file_path = abs_path
+            suffix = request.file_path.split('.')[-1]
+            if suffix in MIMES.keys():
+                request.mime = MIMES[suffix]
+            else:
+                request.status = 400
+                request.err = True
+    else:
+        request.status = 404
+        request.err = True
 
 
-def header_handler(request, header):
-    pass
+def handle_headers(request):
+    for header in request.headers.keys():
+        if header in header_handler.keys():
+            header_handler[header](request, request.headers[header])

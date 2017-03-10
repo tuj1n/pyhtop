@@ -1,27 +1,30 @@
 # -*- coding: utf-8 -*-
 import socket
 import select
-from handle import handle_request
 from request import Request
+from util import load_config, dir_exist, log_err
 
 EOL = b'\r\n\r\n'
-response = b'HTTP/1.0 200 OK\r\nDate: Mon, 1 Jan 1996 01:01:01 GMT\r\n'
-response += b'Content-Type: text/plain\r\nContent-Length: 13\r\n\r\n'
-response += b'Hello, world!'
 
 connections = {}
 requests = {}
-responses = {}
+CONFIG = load_config('config.json')
+
+
+def init():
+    if not dir_exist(CONFIG['root']):
+        log_err('config of root error')
 
 server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-server_socket.bind(('0.0.0.0', 8080))
+server_socket.bind(('0.0.0.0', CONFIG['listen']))
 server_socket.listen(10000)
 server_socket.setblocking(False)
 
 ep = select.epoll()
 ep.register(server_socket.fileno(), select.EPOLLIN | select.EPOLLET)
 
+print 'server start at port %d' % CONFIG['listen']
 try:
     while True:
         events = ep.poll(1)  # timeout = 1s
@@ -36,7 +39,6 @@ try:
                         connections[connection.fileno()] = connection
                         request = Request(connection.fileno())
                         requests[connection.fileno()] = request
-                        responses[connection.fileno()] = response
                 except socket.error:    # EAGAIN
                     pass
             elif event & select.EPOLLIN:
@@ -47,17 +49,17 @@ try:
                     pass
                 # receive done
                 if EOL in requests[file_no].get_message():
-                    # parser request
+                    from handle import handle_request
                     handle_request(requests[file_no])
                     ep.modify(file_no, select.EPOLLOUT | select.EPOLLOUT)
             elif event & select.EPOLLOUT:
                 try:
-                    while len(responses[file_no]) > 0:
-                        byteswritten = connections[file_no].send(responses[file_no])
-                        responses[file_no] = responses[file_no][byteswritten:]
+                    while len(requests[file_no].response_message) > 0:
+                        n = connections[file_no].send(requests[file_no].response_message)
+                        requests[file_no].response_message = requests[file_no].response_message[n:]
                 except socket.error:
                     pass
-                if len(responses[file_no]) == 0:
+                if len(requests[file_no].response_message) == 0:
                     ep.modify(file_no, select.EPOLLET)
                     connections[file_no].close()
                     del connections[file_no]

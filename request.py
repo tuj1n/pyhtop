@@ -8,14 +8,20 @@ class Request:
     http_message = b''
     response_message = b''
     response_done = False
+    err = False
+
     active_time = time.time()
+    keep_alive = False
 
     method = ''
     path = ''
+    file_path = ''
+    file_len = 0
     version = ''
     host = ''
     status = 200
     headers = {}
+    mime = ''
 
     def __init__(self, file_no):
         self.file_no = file_no

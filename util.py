@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+import json
+import time
+import os
 
 CLRF = '\r\n'
 SERVER_STR = 'hpot\0.1.1'
@@ -35,4 +38,38 @@ STATUS_MESSAGE = {
     502: '502 Bad Gateway',
     503: '503 Service Unavailable',
     504: '504 Gateway Time-out',
+    505: '505 HTTP Version Not Supported'
 }
+
+
+def load_config(conf_file):
+    with open(conf_file, 'r') as f:
+        return json.loads(f.read())
+
+
+def dir_exist(path):
+    return os.path.isdir(path)
+
+
+def file_exist(path):
+    return os.path.isfile(path)
+
+
+def can_read(path):
+    for i in oct(os.stat(path).st_mode)[-3:]:
+        if int(i) >= 4:
+            return True
+    return False
+
+
+def modified_time(path):
+    return os.stat(path).st_mtime
+
+
+def unix_time(t, fmt):
+    return time.mktime(time.strptime(t, fmt))
+
+
+def log_err(msg):
+    print '[error] %s' % msg
+    exit()
