@@ -4,7 +4,7 @@ import time
 import os
 
 CLRF = '\r\n'
-SERVER_STR = 'hpot\0.1.1'
+SERVER_STR = 'hpot/0.1.1'
 
 MIMES = {
     'doc': 'application/msword',
@@ -45,6 +45,8 @@ STATUS_MESSAGE = {
 def load_config(conf_file):
     with open(conf_file, 'r') as f:
         return json.loads(f.read())
+
+CONFIG = load_config('config.json')
 
 
 def dir_exist(path):

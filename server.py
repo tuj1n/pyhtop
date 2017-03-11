@@ -1,24 +1,25 @@
 # -*- coding: utf-8 -*-
 import socket
 import select
+import handle
 from request import Request
-from util import load_config, dir_exist, log_err
+from util import CONFIG, dir_exist, log_err
 
 EOL = b'\r\n\r\n'
 
 connections = {}
 requests = {}
-CONFIG = load_config('config.json')
 
 
 def init():
     if not dir_exist(CONFIG['root']):
         log_err('config of root error')
 
+init()
 server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-server_socket.bind(('0.0.0.0', CONFIG['listen']))
-server_socket.listen(10000)
+server_socket.bind(('127.0.0.1', CONFIG['listen']))
+server_socket.listen(1)
 server_socket.setblocking(False)
 
 ep = select.epoll()
@@ -37,20 +38,17 @@ try:
                         connection.setblocking(False)
                         ep.register(connection.fileno(), select.EPOLLIN | select.EPOLLET)
                         connections[connection.fileno()] = connection
-                        request = Request(connection.fileno())
-                        requests[connection.fileno()] = request
+                        requests[connection.fileno()] = Request(connection.fileno())
                 except socket.error:    # EAGAIN
                     pass
             elif event & select.EPOLLIN:
                 try:
                     while True:
-                        requests[file_no].append_message(connections[file_no].recv(1024))
+                        requests[file_no].http_message += connections[file_no].recv(1024)
                 except socket.error:
                     pass
-                # receive done
-                if EOL in requests[file_no].get_message():
-                    from handle import handle_request
-                    handle_request(requests[file_no])
+                if EOL in requests[file_no].http_message:
+                    handle.handle_request(requests[file_no])
                     ep.modify(file_no, select.EPOLLOUT | select.EPOLLOUT)
             elif event & select.EPOLLOUT:
                 try:

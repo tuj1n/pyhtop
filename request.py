@@ -12,6 +12,7 @@ class Request:
 
     active_time = time.time()
     keep_alive = False
+    recv_done = False
 
     method = ''
     path = ''

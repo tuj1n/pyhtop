@@ -1,11 +1,10 @@
 # -*- coding: utf-8 -*-
 from BaseHTTPServer import BaseHTTPRequestHandler
 from StringIO import StringIO
-from util import CLRF, STATUS_MESSAGE, SERVER_STR, MIMES
+from util import CLRF, STATUS_MESSAGE, SERVER_STR, MIMES, CONFIG
 from util import dir_exist, file_exist, can_read
 from response import err_page
 from header_handler import *
-from server import CONFIG
 import time
 
 header_handler = {
@@ -38,10 +37,10 @@ def handle_request(request):
     for key in result.headers.keys():
         request.headers[key] = result.headers[key]
 
-    print request.http_message
-
     handle_request_line(request)
     handle_headers(request)
+
+    request.response_message = build_response(request)
 
 
 def valid_method(method):
@@ -67,24 +66,36 @@ def build_err_response(request, status):
 
 
 def build_response(request):
-    response_line = ''
+
+    response_line = '%s %s%s' % (request.version.upper(), STATUS_MESSAGE[request.status], CLRF)
     response_header = ''
     response_body = ''
+
+    if request.keep_alive:
+        response_header += 'Connection: keep-alive%s' % CLRF
+    else:
+        response_header += 'Connection: close%s' % CLRF
+
+    response_header += 'Server: %s%s' % (SERVER_STR, CLRF)
+
     if request.status == 200:
         with open(request.file_path, 'r') as f:
             response_body = f.read()
-            request.file_len = len(f.read())
+            request.file_len = len(response_body)
 
-        response_line = '%s %s%s' % (request.version.upper(), STATUS_MESSAGE[request.status], CLRF)
-        if request.keep_alive:
-            response_header += 'Connection: keep-alive%s' % CLRF
-        else:
-            response_header += 'Connection: close%s' % CLRF
-        response_line += 'Content-Type: %s%s' % (STATUS_MESSAGE[request.status], CLRF)
-        response_line += 'Content-Length: %d%s' % (request.file_len, CLRF)
-        response_line += 'Date: %s%s' % (time.strftime('%a, %d %b %Y %H:%M:%S GMT', time.localtime()), CLRF)
-        response_line += 'Last-Modified: %s%s%s' % (time.strftime('%a, %d %b %Y %H:%M:%S GMT',
-                                                                  modified_time(request.file_path)), CLRF, CLRF)
+        response_header += 'Content-Type: %s%s' % (request.mime, CLRF)
+        response_header += 'Content-Length: %d%s' % (request.file_len, CLRF)
+        response_header += 'Date: %s%s' % (time.strftime('%a, %d %b %Y %H:%M:%S GMT', time.localtime()), CLRF)
+        response_header += 'Last-Modified: %s%s%s' % (time.strftime('%a, %d %b %Y %H:%M:%S GMT',
+                                                                    time.localtime(modified_time(request.file_path))),
+                                                      CLRF,
+                                                      CLRF)
+    elif request.status == 304:
+        pass
+    else:
+        response_body = err_page(request.status)
+        response_header += 'Content-Type: %s%s' % ('text/html', CLRF)
+        response_header += 'Content-Length: %d%s%s' % (len(response_body), CLRF, CLRF)
     return response_line + response_header + response_body
 
 
@@ -95,9 +106,9 @@ def handle_request_line(request):
 
     handle_uri(request)
 
-    if request.version == 'http/1.1':
+    if request.version.upper() == 'HTTP/1.1':
         request.keep_alive = True
-    elif request.version == 'http/1.0':
+    elif request.version == 'HTTP/1.0':
         request.keep_alive = False
     else:
         request.status = 505
